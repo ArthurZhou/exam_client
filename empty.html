@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>无有效任务</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --border: #1a1a1a;
+      --accent-bg: #f2f2f2;
+      --btn-primary: #1a1a1a;
+      --btn-primary-text: #ffffff;
+      --muted: #666666;
+      --error: #ff3e3e;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --text: #eeeeee;
+        --border: #444444;
+        --accent-bg: #1e1e1e;
+        --btn-primary: #eeeeee;
+        --btn-primary-text: #121212;
+        --muted: #888888;
+      }
+    }
+
+    @font-face {
+      font-family: 'sarasa';
+      src: url('/font.woff');
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'sarasa';
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      padding: 20px;
+    }
+
+    .header {
+      border-bottom: 4px solid var(--border);
+      margin-bottom: 30px;
+      padding-bottom: 10px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      text-transform: uppercase;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .status-box {
+      border: 2px solid var(--border);
+      background: var(--accent-bg);
+      padding: 30px 20px;
+      margin-bottom: 30px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 装饰性的背景纹理，符合那种工业感 */
+    .status-box::before {
+      content: "EMPTY";
+      position: absolute;
+      font-size: 80px;
+      font-weight: 900;
+      opacity: 0.05;
+      bottom: -20px;
+      right: -10px;
+      pointer-events: none;
+    }
+
+    .icon {
+      font-size: 40px;
+      margin-bottom: 15px;
+      display: block;
+    }
+
+    .label {
+      display: block;
+      font-size: 11px;
+      font-weight: bold;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .message {
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.4;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 15px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 2px solid var(--border);
+      background: var(--btn-primary);
+      color: var(--btn-primary-text);
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    .btn:active {
+      transform: translate(2px, 2px);
+    }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>错误</h1>
+    </div>
+
+    <div class="status-box">
+      <span class="icon">⚠</span>
+      <span class="label">本地页面</span>
+      <div class="message">未检测到待执行的任务<br>或考试 URL 路径配置错误</div>
+    </div>
+
+    <button class="btn" onclick="window.location.reload()">重新加载</button>
+
+    <div class="footer">
+      如果问题继续，请联系管理员
+    </div>
+  </div>
+</body>
+
+</html>
