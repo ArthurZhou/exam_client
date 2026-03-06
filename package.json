@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npm run build:osd && vite",
+    "build:osd": "esbuild src/main.ts --bundle --minify --format=iife --platform=browser --outfile=dist/main.js",
+    "build": "tsc && vite build && npm run build:osd",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.3.3",
+    "esbuild": "^0.27.3",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   }

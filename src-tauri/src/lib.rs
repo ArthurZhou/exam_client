@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_ESCAPE, VK_F4, VK_LWIN, VK_RWIN, VK_TAB};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -182,11 +181,11 @@ unsafe extern "system" fn keyboard_proc_ll(code: i32, wparam: WPARAM, lparam: LP
 fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
     // 获取当前内存中的配置（或者重新读取文件）
     let cfg = read_config_from_cwd().map_err(|e| e.to_string())?;
-    
+
     // 获取哈希值，如果没有则使用默认硬编码哈希
-    let hash = cfg.admin_hash.unwrap_or_else(|| {
-        "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into()
-    });
+    let hash = cfg
+        .admin_hash
+        .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into());
 
     println!("[request_exit] 正在校验授权码...");
 
@@ -203,7 +202,7 @@ fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
             toggle_system_restrictions(false);
             app.exit(0);
             Ok(())
-        },
+        }
         _ => {
             println!("[request_exit] 授权码错误");
             Err("授权码验证失败".into())
@@ -218,7 +217,9 @@ fn get_config() -> Result<Config, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // read config from running directory (fallback to defaults)
+    // 1. 编译时静态嵌入。路径相对于当前 .rs 文件。
+    const PRELOAD_SCRIPT: &str = include_str!("../../dist/main.js");
+
     let cfg = match read_config_from_cwd() {
         Ok(c) => c,
         Err(e) => {
@@ -232,20 +233,35 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![request_exit, get_config])
         .device_event_filter(tauri::DeviceEventFilter::Always)
         .setup(move |app| {
-            let window = app.get_webview_window("main").unwrap();
-            
-            // apply window options
+            // 校验 cfg.exam_url 的合法性
+            // 如果合法则记录该 URL 供后续使用，初始页面统一加载 index.html
+            let validated_url = cfg
+                .exam_url
+                .as_ref()
+                .and_then(|u| tauri::Url::parse(u).ok()) // 尝试解析 URL
+                .map(|_| "index.html") // 如果配置合法，初始进入引导页
+                .unwrap_or("empty.html"); // 如果不合法或不存在，进入错误/空白页
+
+            let url = tauri::WebviewUrl::App(validated_url.into());
+            let mut window_builder = tauri::webview::WebviewWindowBuilder::new(app, "main", url)
+                .title("考试客户端")
+                .decorations(false)
+                .initialization_script(PRELOAD_SCRIPT);
+
+            // 应用配置
             if let Some(full) = cfg.fullscreen {
-                let _ = window.set_fullscreen(full);
+                window_builder = window_builder.fullscreen(full);
             }
             if let Some(aot) = cfg.always_on_top {
-                let _ = window.set_always_on_top(aot);
+                window_builder = window_builder.always_on_top(aot);
             }
 
-            // apply registry restrictions per-config
+            let _window = window_builder.build().expect("failed to build window");
+
+            // 应用注册表限制
             apply_registry_restrictions_from_config(&cfg);
 
-            // install keyboard hooks only if any blocking flag is enabled
+            // 键盘钩子逻辑
             let need_hook = cfg.block_win_keys.unwrap_or(false)
                 || cfg.block_alt_tab.unwrap_or(false)
                 || cfg.block_alt_f4.unwrap_or(false)
@@ -257,14 +273,13 @@ pub fn run() {
                     BLOCK_ALT_TAB = cfg.block_alt_tab.unwrap_or(false);
                     BLOCK_ALT_F4 = cfg.block_alt_f4.unwrap_or(false);
                     BLOCK_CTRL_ESC = cfg.block_ctrl_esc.unwrap_or(false);
-                    // Install global low-level keyboard hook
-                    // This will intercept all keyboard events system-wide, including Win keys
-                    HOOK_LL = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc_ll), 0, 0);
-                    if HOOK_LL != 0 {
-                        println!("[setup] Global keyboard hook installed successfully");
-                    } else {
-                        eprintln!("[setup] Failed to install global keyboard hook");
-                    }
+
+                    HOOK_LL = SetWindowsHookExW(
+                        WH_KEYBOARD_LL,
+                        Some(keyboard_proc_ll),
+                        windows_sys::Win32::Foundation::HWND::default() as _,
+                        0,
+                    );
                 }
             }
 
