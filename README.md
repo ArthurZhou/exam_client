@@ -1,7 +1,5 @@
-# Tauri + Vanilla TS
+# exam_client
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
+使用Tauri2构建的网页考试客户端，专为Windows设计，可以屏蔽常见的切屏与退出方式（不能拦截ctrl+alt+del的注销）
 
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+具有自动注入OSD的功能，可以使用overlay的功能在校验密码后退出程序
