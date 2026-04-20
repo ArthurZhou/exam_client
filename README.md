@@ -4,7 +4,7 @@
 
 ## 开发
 ```bash
-git clone <repository-url>
+git clone https://github.com/ArthurZhou/exam_client.git
 cd exam_client
 pnpm install
 pnpm run tauri dev
@@ -12,7 +12,7 @@ pnpm run tauri dev
 
 构建: `pnpm run tauri build`
 
-***！！注意：建议构建生产版本前修改`lib.rs`中的如下字段以确保state文件安全加密**
+**！！注意：建议构建生产版本前修改`lib.rs`中的如下字段以确保state文件安全加密**
 ```rust
 /// 固定密钥用于加密状态文件               |----修改这里，注意长度必须一致----|
 const STATE_ENCRYPTION_KEY: &[u8; 32] = b"exam_state_encryption_key_v_2026";
