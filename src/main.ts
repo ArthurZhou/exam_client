@@ -11,6 +11,7 @@ function initOSD() {
   const shadow = container.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
 
+  // osd css
   style.textContent = `
     :host { all: initial; }
     .osd-wrapper {
@@ -77,12 +78,13 @@ function initOSD() {
 
   const panel = document.createElement('div');
   panel.className = 'osd-wrapper';
+  // osd 内容
   panel.innerHTML = `
     <div class="toolbar">
-      <button class="nav-btn" id="nav-home" title="主页">⌂</button>
-      <button class="nav-btn" id="nav-back" title="后退">\<</button>
-      <button class="nav-btn" id="nav-forward" title="前进">\></button>
-      <button class="nav-btn" id="nav-reload" title="刷新">↻</button>
+      <button class="nav-btn" id="nav-home" title="主页"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M11.336 2.253a1 1 0 0 1 1.328 0l9 8a1 1 0 0 1-1.328 1.494L20 11.45V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7.55l-.336.297a1 1 0 0 1-1.328-1.494zM6 9.67V19h3v-5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5h3V9.671l-6-5.333zM13 19v-4h-2v4z"></path></svg></button>
+      <button class="nav-btn" id="nav-back" title="后退"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" width="24" height="24" viewBox="0 0 42 42"><path fill="currentColor" fill-rule="evenodd" d="M27.066 1L7 21.068l19.568 19.569l4.934-4.933l-14.637-14.636L32 5.933z"></path></svg></button>
+      <button class="nav-btn" id="nav-forward" title="前进"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" width="24" height="24" viewBox="0 0 42 42"><path fill="currentColor" fill-rule="evenodd" d="M13.933 1L34 21.068L14.431 40.637l-4.933-4.933l14.638-14.636L9 5.933z"></path></svg></button>
+      <button class="nav-btn" id="nav-reload" title="刷新"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12.793 2.293a1 1 0 0 1 1.414 0l3 3a1 1 0 0 1 0 1.414l-3 3a1 1 0 0 1-1.414-1.414L14.086 7H12.5C8.952 7 6 9.952 6 13.5S8.952 20 12.5 20s6.5-2.952 6.5-6.5a1 1 0 1 1 2 0c0 4.652-3.848 8.5-8.5 8.5S4 18.152 4 13.5S7.848 5 12.5 5h1.586l-1.293-1.293a1 1 0 0 1 0-1.414"></path></svg></button>
     </div>
     <div class="header">
       <div class="status-group"><span class="dot"></span>考试监控中</div>
@@ -99,7 +101,7 @@ function initOSD() {
   shadow.appendChild(style);
   shadow.appendChild(panel);
 
-  // 导航逻辑：直接操作 window.history 和 window.location
+  // 导航，直接操作 window.history 和 window.location
   shadow.getElementById('nav-home')?.addEventListener('click', async () => {
     try {
       const cfg = await invoke('get_config') as any;

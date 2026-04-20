@@ -5,9 +5,10 @@
 	"disable_taskmgr": false,
 	"disable_lockworkstation": true,
 	"disable_change_password": true,
-	"block_win_keys": false,
+	"block_win_keys": true,
 	"block_alt_tab": false,
 	"block_alt_f4": true,
 	"block_ctrl_esc": true,
+	"enable_state_check": true,
 	"admin_hash": "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS"
 }

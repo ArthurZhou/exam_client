@@ -1,6 +1,15 @@
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_ESCAPE, VK_F4, VK_LWIN, VK_RWIN, VK_TAB};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_F4, VK_LWIN, VK_RWIN, VK_TAB,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
 };
@@ -25,6 +34,7 @@ struct Config {
     block_alt_tab: Option<bool>,
     block_alt_f4: Option<bool>,
     block_ctrl_esc: Option<bool>,
+    enable_state_check: Option<bool>,
     admin_hash: Option<String>,
 }
 
@@ -41,9 +51,137 @@ impl Default for Config {
             block_alt_tab: Some(true),
             block_alt_f4: Some(true),
             block_ctrl_esc: Some(true),
+            enable_state_check: Some(true),
             admin_hash: Some("$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into()),
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct StateFile {
+    status: String, // "normal" or any other value
+}
+
+impl StateFile {
+    fn normal() -> Self {
+        Self {
+            status: "normal".into(),
+        }
+    }
+
+    fn is_normal(&self) -> bool {
+        self.status == "normal"
+    }
+}
+
+/// 固定密钥用于加密状态文件
+const STATE_ENCRYPTION_KEY: &[u8; 32] = b"exam_state_encryption_key_v_2026";
+
+/// 加密状态文件
+fn encrypt_state_file(state: &StateFile) -> Result<Vec<u8>, String> {
+    let cipher = Aes256Gcm::new(STATE_ENCRYPTION_KEY.into());
+
+    let nonce_bytes: [u8; 12] = rand::thread_rng().gen();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let json_str = serde_json::to_string(state).map_err(|e| e.to_string())?;
+    let ciphertext = cipher
+        .encrypt(nonce, json_str.as_bytes())
+        .map_err(|e| format!("加密失败: {}", e))?;
+
+    // Format: nonce (12 bytes) + ciphertext
+    let mut result = nonce_bytes.to_vec();
+    result.extend_from_slice(&ciphertext);
+
+    Ok(result)
+}
+
+/// 解密状态文件
+fn decrypt_state_file(encrypted_data: &[u8]) -> Result<StateFile, String> {
+    if encrypted_data.len() < 12 {
+        return Err("加密数据格式错误".into());
+    }
+
+    let cipher = Aes256Gcm::new(STATE_ENCRYPTION_KEY.into());
+
+    let nonce = Nonce::from_slice(&encrypted_data[0..12]);
+    let ciphertext = &encrypted_data[12..];
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("解密失败: {}", e))?;
+
+    let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
+    let state: StateFile = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+    Ok(state)
+}
+
+/// 获取状态文件路径
+fn get_state_file_path() -> PathBuf {
+    if let Ok(cwd) = std::env::current_dir() {
+        let p = cwd.join(".exam_state");
+        if p.parent().map_or(true, |parent| parent.exists()) {
+            return p;
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            return dir.join(".exam_state");
+        }
+    }
+
+    PathBuf::from(".exam_state")
+}
+
+/// 检查状态文件是否为"正常"状态
+/// 返回 true: 正常退出, false: 不正常（包括文件不存在、无法解密、状态不正常）
+fn check_state_file() -> Result<bool, String> {
+    let state_path = get_state_file_path();
+
+    // 文件不存在也被视为不正常
+    if !state_path.exists() {
+        println!("[state] 状态文件不存在，视为异常");
+        return Ok(false);
+    }
+
+    // 尝试读取和解密状态文件
+    let encrypted_data = fs::read(&state_path).map_err(|e| e.to_string())?;
+
+    match decrypt_state_file(&encrypted_data) {
+        Ok(state) => {
+            println!("[state] 状态文件解密成功，状态: {}", state.status);
+            Ok(state.is_normal())
+        }
+        Err(e) => {
+            // 解密失败（数据损坏或被篡改）
+            println!("[state] 状态文件解密失败: {}", e);
+            Ok(false)
+        }
+    }
+}
+
+/// 设置状态文件为"正常"状态
+fn set_state_normal() -> Result<(), String> {
+    let state_path = get_state_file_path();
+    let state = StateFile::normal();
+    let encrypted = encrypt_state_file(&state)?;
+    fs::write(&state_path, encrypted).map_err(|e| e.to_string())?;
+    println!("[state] 状态文件已设置为正常");
+    Ok(())
+}
+
+/// 设置状态文件为"异常"状态（启动时使用）
+fn set_state_abnormal() -> Result<(), String> {
+    let state_path = get_state_file_path();
+    let state = StateFile {
+        status: "abnormal".into(),
+    };
+    let encrypted = encrypt_state_file(&state)?;
+    fs::write(&state_path, encrypted).map_err(|e| e.to_string())?;
+    println!("[state] 状态文件已设置为异常");
+    Ok(())
 }
 
 fn read_config_from_cwd() -> Result<Config, String> {
@@ -142,41 +280,33 @@ fn toggle_system_restrictions(disable: bool) {
 // This prevents the system from processing the key at all
 unsafe extern "system" fn keyboard_proc_ll(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == 0 {
-        // HC_ACTION
         let kbd = *(lparam as *const KBDLLHOOKSTRUCT);
         let vk = kbd.vkCode as i32;
         let flags = kbd.flags as i32;
-        let is_alt = (flags & 0x20) != 0; // LLKHF_ALTDOWN
-        let is_ctrl = (flags & 0x0008) != 0; // LLKHF_CTRLDOWN
-        let is_injected = (flags & 0x10) != 0; // LLKHF_INJECTED
-        let is_up = (flags & 0x80) != 0; // LLKHF_UP
 
-        // Block Win keys - CRITICAL: Block BOTH key down and key up events!
-        // This is the key to preventing Windows from opening Start menu
+        let is_alt = (flags & 0x20) != 0; // LLKHF_ALTDOWN
+                                          // 使用 GetAsyncKeyState 检测 Ctrl 键状态 (最高位为 1 表示按下)
+        let is_ctrl = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+
         if (vk == VK_LWIN as i32 || vk == VK_RWIN as i32) && BLOCK_WIN_KEYS {
             return 1;
         }
 
-        // Only process other keys on key down, not key up
-        if !is_up && !is_injected {
-            // Block Alt+Tab
-            if vk == VK_TAB as i32 && is_alt && BLOCK_ALT_TAB {
-                return 1;
-            }
+        if vk == VK_TAB as i32 && is_alt && BLOCK_ALT_TAB {
+            return 1;
+        }
 
-            // Block Alt+F4
-            if vk == VK_F4 as i32 && is_alt && BLOCK_ALT_F4 {
-                return 1;
-            }
+        if vk == VK_F4 as i32 && is_alt && BLOCK_ALT_F4 {
+            return 1;
+        }
 
-            // Block Ctrl+Esc
-            if vk == VK_ESCAPE as i32 && is_ctrl && BLOCK_CTRL_ESC {
-                return 1;
-            }
+        if vk == VK_ESCAPE as i32 && is_ctrl && BLOCK_CTRL_ESC {
+            return 1;
         }
     }
     CallNextHookEx(HOOK_LL, code, wparam, lparam)
 }
+
 #[tauri::command]
 fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
     // 获取当前内存中的配置（或者重新读取文件）
@@ -185,14 +315,20 @@ fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
     // 获取哈希值，如果没有则使用默认硬编码哈希
     let hash = cfg
         .admin_hash
-        .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into());
+        .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into()); // 默认：admin888
 
     println!("[request_exit] 正在校验授权码...");
 
     // 使用 bcrypt 进行安全校验
     match bcrypt::verify(&password, &hash) {
         Ok(true) => {
-            println!("[request_exit] 校验通过，正在退出");
+            println!("[request_exit] 校验通过，设置状态为正常并退出");
+
+            // 设置状态文件为正常
+            if let Err(e) = set_state_normal() {
+                println!("[request_exit] 设置状态文件为正常失败: {}", e);
+            }
+
             unsafe {
                 if HOOK_LL != 0 {
                     UnhookWindowsHookEx(HOOK_LL);
@@ -206,6 +342,43 @@ fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
         _ => {
             println!("[request_exit] 授权码错误");
             Err("授权码验证失败".into())
+        }
+    }
+}
+
+/// 验证密码并重置状态文件为正常
+#[tauri::command]
+fn verify_and_reset_state(app: tauri::AppHandle, password: String) -> Result<bool, String> {
+    let cfg = read_config_from_cwd().map_err(|e| e.to_string())?;
+
+    // 获取哈希值
+    let hash = cfg
+        .admin_hash
+        .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into());
+
+    println!("[verify_and_reset_state] 正在校验密码...");
+
+    // 验证密码
+    match bcrypt::verify(&password, &hash) {
+        Ok(true) => {
+            println!("[verify_and_reset_state] 密码验证通过，重置状态文件...");
+            match set_state_normal() {
+                Ok(()) => {
+                    println!("[verify_and_reset_state] 状态文件重置成功");
+                    toggle_system_restrictions(false);
+                    app.exit(0);
+                    Ok(true)
+                }
+                Err(e) => {
+                    println!("[verify_and_reset_state] 状态文件重置失败: {}", e);
+                    // 即使设置状态失败，密码已验证，也认为成功
+                    Ok(true)
+                }
+            }
+        }
+        _ => {
+            println!("[verify_and_reset_state] 密码验证失败");
+            Ok(false)
         }
     }
 }
@@ -230,17 +403,56 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![request_exit, get_config])
+        .invoke_handler(tauri::generate_handler![
+            request_exit,
+            get_config,
+            verify_and_reset_state
+        ])
         .device_event_filter(tauri::DeviceEventFilter::Always)
         .setup(move |app| {
+            // 检查状态文件
+            let mut state_check_failed = false;
+            if cfg.enable_state_check.unwrap_or(false) {
+                match check_state_file() {
+                    Ok(true) => {
+                        println!("[startup] 状态文件正常，继续启动");
+                        // 立即设置为异常，等待正常退出时再设置为正常
+                        if let Err(e) = set_state_abnormal() {
+                            println!("[startup] 设置状态为异常失败: {}", e);
+                        }
+                    }
+                    Ok(false) => {
+                        println!("[startup] 状态文件异常，需要验证密码");
+                        state_check_failed = true;
+                    }
+                    Err(e) => {
+                        println!("[startup] 状态文件检查出错: {}", e);
+                        state_check_failed = true;
+                    }
+                }
+            }
+
+            // 如果状态检查失败，显示锁屏窗口
+            if state_check_failed {
+                let lock_url = tauri::WebviewUrl::App("lock.html".into());
+                let _lock_window = tauri::webview::WebviewWindowBuilder::new(app, "lock", lock_url)
+                    .title("系统锁定")
+                    .decorations(false)
+                    .always_on_top(cfg.always_on_top.unwrap_or(false))
+                    .fullscreen(cfg.fullscreen.unwrap_or(false))
+                    .build()
+                    .expect("failed to build lock window");
+
+                return Ok(());
+            }
+
             // 校验 cfg.exam_url 的合法性
-            // 如果合法则记录该 URL 供后续使用，初始页面统一加载 index.html
             let validated_url = cfg
                 .exam_url
                 .as_ref()
-                .and_then(|u| tauri::Url::parse(u).ok()) // 尝试解析 URL
-                .map(|_| "index.html") // 如果配置合法，初始进入引导页
-                .unwrap_or("empty.html"); // 如果不合法或不存在，进入错误/空白页
+                .and_then(|u| tauri::Url::parse(u).ok())
+                .map(|_| "index.html")
+                .unwrap_or("empty.html");
 
             let url = tauri::WebviewUrl::App(validated_url.into());
             let mut window_builder = tauri::webview::WebviewWindowBuilder::new(app, "main", url)

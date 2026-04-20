@@ -1,8 +1,8 @@
 [package]
 name = "exam_client"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.2.0"
+description = "安全网页考试客户端"
+authors = ["ArthurZhou"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,3 +30,6 @@ windows-sys = { version = "0.52", features = [
 ] }
 winreg = "0.52"
 bcrypt = "0.15"
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"

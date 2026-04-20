@@ -154,7 +154,7 @@
     <button class="btn" id="start-btn">开始考试</button>
 
     <div class="footer">
-      学生会新媒体部  By 240339 @ArthurZhou
+      By Github@ArthurZhou
     </div>
   </div>
   <script type="module">
@@ -165,13 +165,13 @@
 
     startBtn.addEventListener('click', async () => {
       try {
-        // 1. 调用你 Rust 中定义的 get_config 命令
+        // 1. 调用 Rust 中定义的 get_config 命令
         const cfg = await invoke('get_config');
         
         if (cfg && cfg.exam_url) {
           // 2. 跳转到考试地址
           window.location.replace(cfg.exam_url);
-          window.history.pushState({}, '', cfg.exam_url); // 更新历史记录
+          window.history.pushState({}, '', cfg.exam_url); // 更新历史记录以防止导航返回
         }
       } catch (_) {
       }
