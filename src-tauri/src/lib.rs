@@ -4,6 +4,7 @@ use aes_gcm::{
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -118,20 +119,51 @@ fn decrypt_state_file(encrypted_data: &[u8]) -> Result<StateFile, String> {
 }
 
 /// 获取状态文件路径
+/// 搜索顺序：
+/// 1. 当前工作目录
+/// 2. 可执行文件所在目录
+/// 3. 可执行文件上一级目录
+/// 4. src-tauri 目录
 fn get_state_file_path() -> PathBuf {
-    if let Ok(cwd) = std::env::current_dir() {
+    // 1. 尝试当前工作目录
+    if let Ok(cwd) = env::current_dir() {
         let p = cwd.join(".exam_state");
         if p.parent().map_or(true, |parent| parent.exists()) {
+            println!("[state] 从当前目录查找状态文件: {}", p.display());
             return p;
         }
     }
 
-    if let Ok(exe) = std::env::current_exe() {
+    // 2. 尝试可执行文件目录
+    if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            return dir.join(".exam_state");
+            let p = dir.join(".exam_state");
+            if p.parent().map_or(true, |parent| parent.exists()) {
+                println!("[state] 从exe目录查找状态文件: {}", p.display());
+                return p;
+            }
+
+            // 3. 尝试可执行文件上一级目录
+            if let Some(pdir) = dir.parent() {
+                let p2 = pdir.join(".exam_state");
+                if p2.parent().map_or(true, |parent| parent.exists()) {
+                    println!("[state] 从exe上级目录查找状态文件: {}", p2.display());
+                    return p2;
+                }
+            }
         }
     }
 
+    // 4. 尝试 src-tauri 目录
+    if let Ok(cwd) = env::current_dir() {
+        let p = cwd.join("src-tauri").join(".exam_state");
+        if p.parent().map_or(true, |parent| parent.exists()) {
+            println!("[state] 从src-tauri目录查找状态文件: {}", p.display());
+            return p;
+        }
+    }
+
+    println!("[state] 使用默认路径: .exam_state");
     PathBuf::from(".exam_state")
 }
 
@@ -184,10 +216,14 @@ fn set_state_abnormal() -> Result<(), String> {
     Ok(())
 }
 
+/// 从当前工作目录及相关位置读取配置文件
+/// 搜索顺序：
+/// 1. 当前工作目录
+/// 2. 可执行文件所在目录
+/// 3. 可执行文件上一级目录
+/// 4. src-tauri 目录
 fn read_config_from_cwd() -> Result<Config, String> {
-    use std::env;
-    use std::fs;
-    // search locations: current_dir, executable dir, project root (two levels up), src-tauri
+    // 搜索位置: 当前目录、可执行文件目录、项目根目录、src-tauri目录
     let mut tried = Vec::new();
 
     if let Ok(cwd) = env::current_dir() {

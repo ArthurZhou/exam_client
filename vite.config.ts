@@ -32,6 +32,7 @@ export default defineConfig(async () => ({
       input: {
         main: resolve(__dirname, "index.html"),
         empty: resolve(__dirname, "empty.html"),
+        lock: resolve(__dirname, "lock.html"),
       },
     },
   },

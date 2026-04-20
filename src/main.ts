@@ -156,8 +156,18 @@ function initOSD() {
   attachExitHandler();
 }
 
+function checkOriginAndRedirect() {
+  // Webview2 在加载失败（如断网、DNS 错误）时，origin 会变成字符串 "null"，此时无法正常tauri invoke，必须跳转到一个本地页面来恢复退出功能
+  const isInvalidOrigin = window.location.origin === "null" || window.origin === "null";
+
+  if (isInvalidOrigin) {
+    window.location.replace("http://tauri.localhost/empty.html");   // 这个仅在build构件中有效，dev无效
+  }
+}
+
 if (document.readyState === 'complete') {
   initOSD();
 } else {
   window.addEventListener('load', initOSD);
 }
+checkOriginAndRedirect();

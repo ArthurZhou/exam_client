@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:osd && vite",
-    "build:osd": "esbuild src/main.ts --bundle --minify --format=iife --platform=browser --outfile=dist/main.js",
+    "build:osd": "esbuild src/main.ts --bundle --minify --format=iife --platform=browser --outfile=dist/main.js --loader:.html=text",
     "build": "tsc && vite build && npm run build:osd",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "vite": "vite"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
