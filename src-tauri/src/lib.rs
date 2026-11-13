@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_F4, VK_LWIN, VK_RWIN, VK_TAB,
+    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_F4, VK_LWIN, VK_RWIN, VK_TAB, VK_LEFT, VK_RIGHT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
@@ -22,6 +22,7 @@ static mut BLOCK_WIN_KEYS: bool = false;
 static mut BLOCK_ALT_TAB: bool = false;
 static mut BLOCK_ALT_F4: bool = false;
 static mut BLOCK_CTRL_ESC: bool = false;
+static mut BLOCK_DESKTOP_SWITCH: bool = false;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
@@ -31,10 +32,12 @@ struct Config {
     disable_taskmgr: Option<bool>,
     disable_lockworkstation: Option<bool>,
     disable_change_password: Option<bool>,
+    disable_touch_swipe: Option<bool>,
     block_win_keys: Option<bool>,
     block_alt_tab: Option<bool>,
     block_alt_f4: Option<bool>,
     block_ctrl_esc: Option<bool>,
+    block_desktop_switch: Option<bool>, // 新增：禁止切换桌面
     enable_state_check: Option<bool>,
     admin_hash: Option<String>,
 }
@@ -48,10 +51,12 @@ impl Default for Config {
             disable_taskmgr: Some(true),
             disable_lockworkstation: Some(true),
             disable_change_password: Some(true),
+            disable_touch_swipe: Some(false),
             block_win_keys: Some(true),
             block_alt_tab: Some(true),
             block_alt_f4: Some(true),
             block_ctrl_esc: Some(true),
+            block_desktop_switch: Some(true),
             enable_state_check: Some(true),
             admin_hash: Some("$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into()),
         }
@@ -283,60 +288,68 @@ fn read_config_from_cwd() -> Result<Config, String> {
     Ok(Config::default())
 }
 
-fn apply_registry_restrictions_from_config(cfg: &Config) {
+/// 统一注册表限制开关
+fn toggle_registry_restrictions(enable: bool, cfg: &Config) {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
-    if let Ok((key, _)) = hkcu.create_subkey(path) {
-        if let Some(val) = cfg.disable_taskmgr {
-            let _ = key.set_value("DisableTaskMgr", &(if val { 1u32 } else { 0u32 }));
+    let val: u32 = if enable { 1 } else { 0 };
+
+    // 1. 系统策略限制 (任务管理器、锁屏、修改密码)
+    let sys_path = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+    if let Ok((key, _)) = hkcu.create_subkey(sys_path) {
+        if cfg.disable_taskmgr.unwrap_or(false) || !enable {
+            let _ = key.set_value("DisableTaskMgr", &val);
         }
-        if let Some(val) = cfg.disable_lockworkstation {
-            let _ = key.set_value("DisableLockWorkstation", &(if val { 1u32 } else { 0u32 }));
+        if cfg.disable_lockworkstation.unwrap_or(false) || !enable {
+            let _ = key.set_value("DisableLockWorkstation", &val);
         }
-        if let Some(val) = cfg.disable_change_password {
-            let _ = key.set_value("DisableChangePassword", &(if val { 1u32 } else { 0u32 }));
+        if cfg.disable_change_password.unwrap_or(false) || !enable {
+            let _ = key.set_value("DisableChangePassword", &val);
+        }
+    }
+
+    // 2. 侧边栏手势限制
+    let edgeui_path = "Software\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell\\EdgeUI";
+    if let Ok((key, _)) = hkcu.create_subkey(edgeui_path) {
+        if cfg.disable_touch_swipe.unwrap_or(false) || !enable {
+            let _ = key.set_value("DisableTLRightSwipe", &val);
+            let _ = key.set_value("DisableTLLeftSwipe", &val);
         }
     }
 }
 
-// modify registry to enable/disable system restrictions
-fn toggle_system_restrictions(disable: bool) {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
-    if let Ok((key, _)) = hkcu.create_subkey(path) {
-        let val: u32 = if disable { 1 } else { 0 };
-        let _ = key.set_value("DisableTaskMgr", &val);
-        let _ = key.set_value("DisableLockWorkstation", &val);
-        let _ = key.set_value("DisableChangePassword", &val);
-    }
-}
-
-// low-level keyboard hook callback: return 1 to swallow event
-// The trick is to return 1 for BOTH key down and key up events for Win key
-// This prevents the system from processing the key at all
 unsafe extern "system" fn keyboard_proc_ll(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == 0 {
         let kbd = *(lparam as *const KBDLLHOOKSTRUCT);
         let vk = kbd.vkCode as i32;
         let flags = kbd.flags as i32;
 
-        let is_alt = (flags & 0x20) != 0; // LLKHF_ALTDOWN
-                                          // 使用 GetAsyncKeyState 检测 Ctrl 键状态 (最高位为 1 表示按下)
+        let is_alt = (flags & 0x20) != 0; 
         let is_ctrl = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+        let is_win = (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0 
+                     || (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0;
 
+        // 拦截 Win 键
         if (vk == VK_LWIN as i32 || vk == VK_RWIN as i32) && BLOCK_WIN_KEYS {
             return 1;
         }
 
+        // 拦截 Alt + Tab
         if vk == VK_TAB as i32 && is_alt && BLOCK_ALT_TAB {
             return 1;
         }
 
+        // 拦截 Alt + F4
         if vk == VK_F4 as i32 && is_alt && BLOCK_ALT_F4 {
             return 1;
         }
 
+        // 拦截 Ctrl + Esc
         if vk == VK_ESCAPE as i32 && is_ctrl && BLOCK_CTRL_ESC {
+            return 1;
+        }
+
+        // 拦截虚拟桌面切换 Win + Ctrl + Left/Right
+        if (vk == VK_LEFT as i32 || vk == VK_RIGHT as i32) && is_ctrl && is_win && BLOCK_DESKTOP_SWITCH {
             return 1;
         }
     }
@@ -350,7 +363,7 @@ fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
 
     // 获取哈希值，如果没有则使用默认硬编码哈希
     let hash = cfg
-        .admin_hash
+        .admin_hash.clone()
         .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into()); // 默认：admin888
 
     println!("[request_exit] 正在校验授权码...");
@@ -371,7 +384,7 @@ fn request_exit(app: tauri::AppHandle, password: String) -> Result<(), String> {
                     HOOK_LL = 0;
                 }
             }
-            toggle_system_restrictions(false);
+            toggle_registry_restrictions(false, &cfg);
             app.exit(0);
             Ok(())
         }
@@ -389,7 +402,7 @@ fn verify_and_reset_state(app: tauri::AppHandle, password: String) -> Result<boo
 
     // 获取哈希值
     let hash = cfg
-        .admin_hash
+        .admin_hash.clone()
         .unwrap_or_else(|| "$2y$12$yo8M7GzPhHAQhfw29IXC7OBEU5bQyMmY5BVhiun.SyYpIt8T0C3pS".into());
 
     println!("[verify_and_reset_state] 正在校验密码...");
@@ -401,7 +414,7 @@ fn verify_and_reset_state(app: tauri::AppHandle, password: String) -> Result<boo
             match set_state_normal() {
                 Ok(()) => {
                     println!("[verify_and_reset_state] 状态文件重置成功");
-                    toggle_system_restrictions(false);
+                    toggle_registry_restrictions(false, &cfg);
                     app.exit(0);
                     Ok(true)
                 }
@@ -506,14 +519,14 @@ pub fn run() {
 
             let _window = window_builder.build().expect("failed to build window");
 
-            // 应用注册表限制
-            apply_registry_restrictions_from_config(&cfg);
+            // 应用配置
+            toggle_registry_restrictions(true, &cfg);
 
-            // 键盘钩子逻辑
             let need_hook = cfg.block_win_keys.unwrap_or(false)
                 || cfg.block_alt_tab.unwrap_or(false)
                 || cfg.block_alt_f4.unwrap_or(false)
-                || cfg.block_ctrl_esc.unwrap_or(false);
+                || cfg.block_ctrl_esc.unwrap_or(false)
+                || cfg.block_desktop_switch.unwrap_or(false);
 
             if need_hook {
                 unsafe {
@@ -521,6 +534,7 @@ pub fn run() {
                     BLOCK_ALT_TAB = cfg.block_alt_tab.unwrap_or(false);
                     BLOCK_ALT_F4 = cfg.block_alt_f4.unwrap_or(false);
                     BLOCK_CTRL_ESC = cfg.block_ctrl_esc.unwrap_or(false);
+                    BLOCK_DESKTOP_SWITCH = cfg.block_desktop_switch.unwrap_or(false);
 
                     HOOK_LL = SetWindowsHookExW(
                         WH_KEYBOARD_LL,
